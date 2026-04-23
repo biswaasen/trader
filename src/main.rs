@@ -79,7 +79,10 @@ fn build_views(selections: Vec<Selection>) -> Vec<View> {
                 let up_stats   = Arc::new(RwLock::new(Stats::default()));
                 let down_stats = Arc::new(RwLock::new(Stats::default()));
                 let spot_price    = Arc::new(RwLock::new(0.0_f64));
-                let price_to_beat = Arc::new(RwLock::new(m.price_to_beat));
+                // Always start at 0.0 — the PTB poller fetches the correct
+                // Chainlink opening price via polymarket.com/api/crypto/crypto-price.
+                // gamma::discover's priceToBeat is from market creation (24h stale).
+                let price_to_beat = Arc::new(RwLock::new(0.0_f64));
                 let market = Arc::new(RwLock::new(MarketState {
                     title:      m.title,
                     asset:      m.asset.clone(),

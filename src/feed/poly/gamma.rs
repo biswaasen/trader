@@ -30,8 +30,6 @@ pub struct Market {
     pub end_date:      String,
     pub duration:      String,
     pub asset:         String,
-    /// Chainlink reference price at window open (0.0 if not yet set)
-    pub price_to_beat: f64,
 }
 
 pub async fn discover() -> Result<Vec<Market>> {
@@ -60,7 +58,6 @@ pub async fn discover() -> Result<Vec<Market>> {
             if ids.len() < 2 { return None; }
             let prices = json_vec(mkt.outcome_prices.as_deref()).unwrap_or_default();
             let pf = |s: Option<&String>| s.and_then(|v| fast_float::parse::<f64,_>(v).ok()).unwrap_or(0.5);
-            let ptb = ev.metadata.as_ref().map(|m| m.price_to_beat).unwrap_or(0.0);
             Some(Market {
                 event_slug:    slug,
                 title:         ev.title,
@@ -71,7 +68,6 @@ pub async fn discover() -> Result<Vec<Market>> {
                 end_date:      mkt.end_date.unwrap_or_default(),
                 duration:      dur,
                 asset,
-                price_to_beat: ptb,
             })
         }
     }).collect();
@@ -91,13 +87,8 @@ fn json_vec(s: Option<&str>) -> Option<Vec<String>> { serde_json::from_str(s?).o
 #[derive(Deserialize)]
 struct GammaEvent {
     title:   String,
-    #[serde(default)]                  closed:   bool,
-    #[serde(default)]                  markets:  Vec<GammaMarket>,
-    #[serde(rename = "eventMetadata")] metadata: Option<EventMeta>,
-}
-#[derive(Deserialize)]
-struct EventMeta {
-    #[serde(rename = "priceToBeat", default)] price_to_beat: f64,
+    #[serde(default)] closed:  bool,
+    #[serde(default)] markets: Vec<GammaMarket>,
 }
 #[derive(Deserialize)]
 struct GammaMarket {
