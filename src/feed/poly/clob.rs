@@ -41,9 +41,10 @@ pub fn handle(text: &str, f: &Feed) -> Result<()> {
 }
 
 fn dispatch(ev: Ev, f: &Feed) {
-    let (book, stats) = if ev.asset_id.as_deref() == Some(f.up_id.as_str()) {
+    let (up_id, down_id) = { let m = f.market.read(); (m.up_id.clone(), m.down_id.clone()) };
+    let (book, stats) = if ev.asset_id.as_deref() == Some(up_id.as_str()) {
         (&f.up_book, &f.up_stats)
-    } else if ev.asset_id.as_deref() == Some(f.down_id.as_str()) {
+    } else if ev.asset_id.as_deref() == Some(down_id.as_str()) {
         (&f.down_book, &f.down_stats)
     } else { return };
 

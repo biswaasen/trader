@@ -4,7 +4,7 @@ mod tui;
 
 use anyhow::Result;
 use crossterm::{execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
-use feed::{binance, poly, Pane, PolyPane, Stats, View};
+use feed::{binance, poly, MarketState, Pane, PolyPane, Stats, View};
 use market::{OrderBook, BINANCE_PX_SCALE, BINANCE_QTY_SCALE, POLY_PX_SCALE, POLY_QTY_SCALE};
 use parking_lot::RwLock;
 use ratatui::{prelude::*, Terminal};
@@ -79,28 +79,29 @@ fn build_views(selections: Vec<Selection>) -> Vec<View> {
                 let up_stats   = Arc::new(RwLock::new(Stats::default()));
                 let down_stats = Arc::new(RwLock::new(Stats::default()));
                 let spot_price    = Arc::new(RwLock::new(0.0_f64));
-                // Seed with whatever the Gamma API gave us; the poller will fill it once
-                // Chainlink posts the reference price for the window.
                 let price_to_beat = Arc::new(RwLock::new(m.price_to_beat));
-                // Chainlink slash-format: "BTC" → "btc/usd"
+                let market = Arc::new(RwLock::new(MarketState {
+                    title:      m.title,
+                    asset:      m.asset.clone(),
+                    duration:   m.duration,
+                    end_date:   m.end_date,
+                    event_slug: m.event_slug,
+                    up_id:      m.up_token_id,
+                    down_id:    m.down_token_id,
+                }));
+                // Chainlink format: "BTC" → "btc/usd"
                 let chainlink_symbol = format!("{}/usd", m.asset.to_lowercase());
                 poly::spawn(poly::Feed {
-                    up_id:    m.up_token_id.clone(), down_id:    m.down_token_id.clone(),
-                    up_book:  up_book.clone(),       down_book:  down_book.clone(),
-                    up_stats: up_stats.clone(),      down_stats: down_stats.clone(),
+                    market:    market.clone(),
+                    up_book:   up_book.clone(),  down_book:  down_book.clone(),
+                    up_stats:  up_stats.clone(), down_stats: down_stats.clone(),
                     chainlink_symbol,
                     spot_price:    spot_price.clone(),
-                    event_slug:    m.event_slug.clone(),
                     price_to_beat: price_to_beat.clone(),
                 });
                 views.push(View::Poly(PolyPane {
-                    title:         m.title,
-                    asset:         m.asset,
-                    duration:      m.duration,
-                    end_date:      m.end_date,
-                    up_book, down_book, up_stats, down_stats,
-                    spot_price,
-                    price_to_beat,
+                    market, up_book, down_book, up_stats, down_stats,
+                    spot_price, price_to_beat,
                 }));
             }
         }

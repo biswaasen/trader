@@ -9,10 +9,24 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type BookHandle       = Arc<RwLock<OrderBook>>;
 pub type StatsHandle      = Arc<RwLock<Stats>>;
-/// Shared live spot price (e.g. BTCUSDT), updated by the poly feed via REST
+/// Shared live f64 price — used for both spot price and price-to-beat
 pub type SpotPriceHandle  = Arc<RwLock<f64>>;
+/// Live mutable market metadata — swapped atomically on auto-advance
+pub type MarketHandle     = Arc<RwLock<MarketState>>;
 
-/// Single-book pane (used for Binance spot pairs)
+/// All fields that change when we roll to the next window
+#[derive(Clone)]
+pub struct MarketState {
+    pub title:      String,
+    pub asset:      String,
+    pub duration:   String,
+    pub end_date:   String,
+    pub event_slug: String,
+    pub up_id:      String,
+    pub down_id:    String,
+}
+
+/// Single-book pane (Binance spot pairs)
 #[derive(Clone)]
 pub struct Pane {
     pub title:    String,
@@ -24,22 +38,16 @@ pub struct Pane {
     pub group:    Option<String>,
 }
 
-/// Unified Polymarket pane — holds both UP and DOWN books together
+/// Unified Polymarket pane — both UP and DOWN, auto-advances each window
 #[derive(Clone)]
 pub struct PolyPane {
-    pub title:         String,
-    pub asset:         String,
-    pub duration:      String,
-    /// ISO-8601 end timestamp (e.g. "2026-04-21T20:15:00Z")
-    pub end_date:      String,
-    /// Chainlink reference price — polled live, 0.0 until Chainlink posts it
+    pub market:        MarketHandle,
     pub price_to_beat: SpotPriceHandle,
+    pub spot_price:    SpotPriceHandle,
     pub up_book:       BookHandle,
     pub down_book:     BookHandle,
     pub up_stats:      StatsHandle,
     pub down_stats:    StatsHandle,
-    /// Live spot price (e.g. BTCUSDT) — kept fresh by poly feed via Binance REST
-    pub spot_price:    SpotPriceHandle,
 }
 
 /// What the viewer renders — one column in the layout grid

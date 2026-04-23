@@ -7,13 +7,19 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 // ── public entry point ───────────────────────────────────────────────────────
 
 pub fn draw(f: &mut Frame, area: Rect, p: &PolyPane) {
+    // Snapshot all market metadata in one lock — released before rendering
+    let (title, asset, duration, end_date) = {
+        let m = p.market.read();
+        (m.title.clone(), m.asset.clone(), m.duration.clone(), m.end_date.clone())
+    };
+
     let (up_bids, up_asks, up_mid, up_imb, up_trade, up_conn, up_boot, up_msgs, up_lat, up_err) = snap_book(p, true);
     let (dn_bids, dn_asks, dn_mid, dn_imb, dn_trade, dn_conn, dn_boot, dn_msgs, dn_lat, _)     = snap_book(p, false);
 
     let spot_now   = { let v = *p.spot_price.read();    if v > 0.0 { Some(v) } else { None } };
     let ptb        = { let v = *p.price_to_beat.read(); if v > 0.0 { Some(v) } else { None } };
-    let secs_left  = secs_remaining(&p.end_date);
-    let fair_up    = spot_now.and_then(|s| ptb.and_then(|r| fair_value(s, r, secs_left, &p.duration)));
+    let secs_left  = secs_remaining(&end_date);
+    let fair_up    = spot_now.and_then(|s| ptb.and_then(|r| fair_value(s, r, secs_left, &duration)));
 
     let conn  = up_conn && dn_conn;
     let boot  = up_boot && dn_boot;
@@ -40,10 +46,10 @@ pub fn draw(f: &mut Frame, area: Rect, p: &PolyPane) {
         .border_style(Style::default().fg(if conn { Color::Magenta } else { Color::DarkGray }))
         .title(Line::from(vec![
             Span::raw(" "),
-            Span::styled(format!("POLY · {} {}", p.asset, p.duration),
+            Span::styled(format!("POLY · {} {}", asset, duration),
                          Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
             Span::raw("  "),
-            Span::styled(&p.title, Style::default().fg(Color::DarkGray)),
+            Span::styled(title, Style::default().fg(Color::DarkGray)),
             Span::raw(" "),
         ]))
         .title_top(Line::from(vec![
