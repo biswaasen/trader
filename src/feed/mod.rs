@@ -7,8 +7,10 @@ use ratatui::style::Color;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub type BookHandle  = Arc<RwLock<OrderBook>>;
-pub type StatsHandle = Arc<RwLock<Stats>>;
+pub type BookHandle       = Arc<RwLock<OrderBook>>;
+pub type StatsHandle      = Arc<RwLock<Stats>>;
+/// Shared live spot price (e.g. BTCUSDT), updated by the poly feed via REST
+pub type SpotPriceHandle  = Arc<RwLock<f64>>;
 
 /// Single-book pane (used for Binance spot pairs)
 #[derive(Clone)]
@@ -30,14 +32,14 @@ pub struct PolyPane {
     pub duration:      String,
     /// ISO-8601 end timestamp (e.g. "2026-04-21T20:15:00Z")
     pub end_date:      String,
-    /// Chainlink reference price at window open; 0.0 = not yet set
-    pub price_to_beat: f64,
+    /// Chainlink reference price — polled live, 0.0 until Chainlink posts it
+    pub price_to_beat: SpotPriceHandle,
     pub up_book:       BookHandle,
     pub down_book:     BookHandle,
     pub up_stats:      StatsHandle,
     pub down_stats:    StatsHandle,
-    /// Live Binance BTCUSDT mid — wired in by main if user opened that pair
-    pub btc_book:      Option<BookHandle>,
+    /// Live spot price (e.g. BTCUSDT) — kept fresh by poly feed via Binance REST
+    pub spot_price:    SpotPriceHandle,
 }
 
 /// What the viewer renders — one column in the layout grid

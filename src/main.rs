@@ -59,8 +59,6 @@ fn arg_flag(args: &[String], flag: &str) -> Option<String> {
 
 fn build_views(selections: Vec<Selection>) -> Vec<View> {
     let mut views: Vec<View> = Vec::new();
-    // Track the BTCUSDT book handle so poly panes can read live BTC price
-    let mut btc_book: Option<feed::BookHandle> = None;
 
     for sel in selections {
         match sel {
@@ -68,9 +66,6 @@ fn build_views(selections: Vec<Selection>) -> Vec<View> {
                 let book  = Arc::new(RwLock::new(OrderBook::new(BINANCE_PX_SCALE, BINANCE_QTY_SCALE)));
                 let stats = Arc::new(RwLock::new(Stats::default()));
                 binance::spawn(sym.clone(), book.clone(), stats.clone());
-                if sym.to_uppercase() == "BTCUSDT" {
-                    btc_book = Some(book.clone());
-                }
                 views.push(View::Exchange(Pane {
                     title:    format!("BINANCE · {sym}"),
                     subtitle: "raw @depth  ·  integer ticks".into(),
@@ -83,28 +78,31 @@ fn build_views(selections: Vec<Selection>) -> Vec<View> {
                 let down_book  = Arc::new(RwLock::new(OrderBook::new(POLY_PX_SCALE, POLY_QTY_SCALE)));
                 let up_stats   = Arc::new(RwLock::new(Stats::default()));
                 let down_stats = Arc::new(RwLock::new(Stats::default()));
+                let spot_price    = Arc::new(RwLock::new(0.0_f64));
+                // Seed with whatever the Gamma API gave us; the poller will fill it once
+                // Chainlink posts the reference price for the window.
+                let price_to_beat = Arc::new(RwLock::new(m.price_to_beat));
+                // Chainlink slash-format: "BTC" → "btc/usd"
+                let chainlink_symbol = format!("{}/usd", m.asset.to_lowercase());
                 poly::spawn(poly::Feed {
-                    up_id:    m.up_token_id.clone(), down_id:   m.down_token_id.clone(),
-                    up_book:  up_book.clone(),       down_book: down_book.clone(),
+                    up_id:    m.up_token_id.clone(), down_id:    m.down_token_id.clone(),
+                    up_book:  up_book.clone(),       down_book:  down_book.clone(),
                     up_stats: up_stats.clone(),      down_stats: down_stats.clone(),
+                    chainlink_symbol,
+                    spot_price:    spot_price.clone(),
+                    event_slug:    m.event_slug.clone(),
+                    price_to_beat: price_to_beat.clone(),
                 });
                 views.push(View::Poly(PolyPane {
                     title:         m.title,
                     asset:         m.asset,
                     duration:      m.duration,
                     end_date:      m.end_date,
-                    price_to_beat: m.price_to_beat,
                     up_book, down_book, up_stats, down_stats,
-                    btc_book: None, // wired below after all selections are processed
+                    spot_price,
+                    price_to_beat,
                 }));
             }
-        }
-    }
-
-    // Wire the BTCUSDT book into every poly pane so they can show live BTC price
-    if let Some(btc) = &btc_book {
-        for v in &mut views {
-            if let View::Poly(p) = v { p.btc_book = Some(btc.clone()); }
         }
     }
 

@@ -10,9 +10,10 @@ pub fn draw(f: &mut Frame, area: Rect, p: &PolyPane) {
     let (up_bids, up_asks, up_mid, up_imb, up_trade, up_conn, up_boot, up_msgs, up_lat, up_err) = snap_book(p, true);
     let (dn_bids, dn_asks, dn_mid, dn_imb, dn_trade, dn_conn, dn_boot, dn_msgs, dn_lat, _)     = snap_book(p, false);
 
-    let btc_now = p.btc_book.as_ref().and_then(|b| b.read().mid_f64());
-    let secs_left = secs_remaining(&p.end_date);
-    let fair_up   = btc_now.and_then(|btc| fair_value(btc, p.price_to_beat, secs_left, &p.duration));
+    let spot_now   = { let v = *p.spot_price.read();    if v > 0.0 { Some(v) } else { None } };
+    let ptb        = { let v = *p.price_to_beat.read(); if v > 0.0 { Some(v) } else { None } };
+    let secs_left  = secs_remaining(&p.end_date);
+    let fair_up    = spot_now.and_then(|s| ptb.and_then(|r| fair_value(s, r, secs_left, &p.duration)));
 
     let conn  = up_conn && dn_conn;
     let boot  = up_boot && dn_boot;
@@ -68,27 +69,33 @@ pub fn draw(f: &mut Frame, area: Rect, p: &PolyPane) {
 
     let mut lines: Vec<Line> = Vec::with_capacity(32);
 
-    // ── reference price row ──────────────────────────────────────────────────
-    if p.price_to_beat > 0.0 || btc_now.is_some() {
-        let ref_s = if p.price_to_beat > 0.0 {
-            format!("ref  ${}", fmt_btc(p.price_to_beat))
-        } else { "ref  —".into() };
-        let (now_s, delta_s, delta_col) = match btc_now {
-            Some(n) if p.price_to_beat > 0.0 => {
-                let d = n - p.price_to_beat;
-                let pct = d / p.price_to_beat * 100.0;
+    // ── price-to-beat / current / delta row (always shown) ───────────────────
+    {
+        // Row 1: labels
+        lines.push(Line::from(vec![
+            Span::styled(format!("{:<22}", "price to beat"),  Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("{:<22}", "current"),        Style::default().fg(Color::DarkGray)),
+            Span::styled("change",                            Style::default().fg(Color::DarkGray)),
+        ]));
+        // Row 2: values
+        let ptb_s  = ptb.map(|v| format!("${}", fmt_spot(v))).unwrap_or_else(|| "fetching…".into());
+        let now_s  = spot_now.map(|v| format!("${}", fmt_spot(v))).unwrap_or_else(|| "fetching…".into());
+        let (delta_s, delta_col, arrow) = match (spot_now, ptb) {
+            (Some(n), Some(r)) => {
+                let d   = n - r;
+                let pct = d / r * 100.0;
                 let sign = if d >= 0.0 { "+" } else { "" };
-                let col = if d > 0.0 { Color::Green } else if d < 0.0 { Color::Red } else { Color::Gray };
-                (format!("now  ${}", fmt_btc(n)), format!("Δ  {sign}${:.0}  ({sign}{pct:.2}%)", d.abs().copysign(d)), col)
+                let col  = if d > 0.0 { Color::Green } else if d < 0.0 { Color::Red } else { Color::Gray };
+                let arr  = if d > 0.0 { "▲" } else if d < 0.0 { "▼" } else { "─" };
+                (format!("{sign}${:.2}  ({sign}{pct:.2}%)", d), col, arr)
             }
-            Some(n) => (format!("now  ${}", fmt_btc(n)), String::new(), Color::Gray),
-            None    => ("now  —".into(), String::new(), Color::Gray),
+            _ => ("—".into(), Color::DarkGray, ""),
         };
         lines.push(Line::from(vec![
-            Span::styled(ref_s, Style::default().fg(Color::DarkGray)),
-            Span::raw("    "),
-            Span::styled(now_s, Style::default().fg(Color::White)),
-            Span::raw("    "),
+            Span::styled(format!("{:<22}", ptb_s), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{:<22}", now_s), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(arrow,   Style::default().fg(delta_col).add_modifier(Modifier::BOLD)),
+            Span::raw(" "),
             Span::styled(delta_s, Style::default().fg(delta_col).add_modifier(Modifier::BOLD)),
         ]));
         lines.push(Line::from(""));
@@ -273,8 +280,12 @@ fn fmt_countdown(secs: f64) -> String {
     else      { format!("{}:{:02}", s / 60, s % 60) }
 }
 
-fn fmt_btc(p: f64) -> String {
-    let t = p as u64;
-    let frac = ((p - t as f64) * 100.0).round() as u64;
-    format!("{},{:03}.{:02}", t / 1_000, t % 1_000, frac)
+fn fmt_spot(p: f64) -> String {
+    if p >= 1_000.0 {
+        let t = p as u64;
+        let frac = ((p - t as f64) * 100.0).round() as u64;
+        format!("{},{:03}.{:02}", t / 1_000, t % 1_000, frac)
+    } else {
+        format!("{:.4}", p)
+    }
 }
