@@ -1,5 +1,6 @@
 mod feed;
 mod market;
+mod storage;
 mod tui;
 
 use anyhow::Result;
@@ -19,6 +20,7 @@ fn main() -> Result<()> {
 
 async fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    storage::init()?;
 
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

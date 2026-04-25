@@ -5,6 +5,7 @@ pub use gamma::{discover, Market};
 
 use crate::feed::{now_us, BookHandle, MarketHandle, SpotPriceHandle, StatsHandle};
 use crate::market::{POLY_PX_SCALE, POLY_QTY_SCALE};
+use crate::storage::{record_poly_tick, PolyTick};
 use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
@@ -15,6 +16,7 @@ const RTDS_WS:   &str = "wss://ws-live-data.polymarket.com";
 const GAMMA_API: &str = "https://gamma-api.polymarket.com/events";
 const PTB_API:   &str = "https://polymarket.com/api/crypto/crypto-price";
 
+#[derive(Clone)]
 pub struct Feed {
     pub market:           MarketHandle,
     pub up_book:          BookHandle,
@@ -71,11 +73,12 @@ pub fn spawn(feed: Feed) {
     }
 
     // ── CLOB order-book WS + auto-advance ────────────────────────────────────
+    let feed_clob = feed.clone();
     tokio::spawn(async move {
         loop {
-            if let Err(e) = run_clob(&feed).await {
+            if let Err(e) = run_clob(&feed_clob).await {
                 let msg = format!("{:#}", e);
-                for s in [&feed.up_stats, &feed.down_stats] {
+                for s in [&feed_clob.up_stats, &feed_clob.down_stats] {
                     let mut s = s.write();
                     s.connected = false; s.reconnects += 1;
                     s.last_error = Some(msg.clone());
@@ -83,13 +86,13 @@ pub fn spawn(feed: Feed) {
             }
 
             let expired = {
-                let end = feed.market.read().end_date.clone();
+                let end = feed_clob.market.read().end_date.clone();
                 secs_left_simple(&end) <= 0.0
             };
             if expired {
                 for attempt in 0u32..5 {
-                    if advance_market(&http, &feed.market, &feed.price_to_beat,
-                                      &feed.up_book, &feed.down_book).await { break; }
+                    if advance_market(&http, &feed_clob.market, &feed_clob.price_to_beat,
+                                      &feed_clob.up_book, &feed_clob.down_book).await { break; }
                     let wait = 10 * (1 + attempt);
                     tokio::time::sleep(Duration::from_secs(wait as u64)).await;
                 }
@@ -98,6 +101,51 @@ pub fn spawn(feed: Feed) {
             tokio::time::sleep(Duration::from_secs(3)).await;
         }
     });
+
+    // ── 1Hz snapshot recorder (SQLite writer queue) ───────────────────────────
+    {
+        let market = feed.market.clone();
+        let up_book = feed.up_book.clone();
+        let down_book = feed.down_book.clone();
+        let spot = feed.spot_price.clone();
+        let ptb = feed.price_to_beat.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(1));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                let ts_ms = chrono::Utc::now().timestamp_millis();
+
+                let m = market.read().clone();
+                let up = up_book.read();
+                let down = down_book.read();
+                let up_bid = up.best_bid().map(|(p, _)| p as f64 / up.px_scale as f64);
+                let up_ask = up.best_ask().map(|(p, _)| p as f64 / up.px_scale as f64);
+                let down_bid = down.best_bid().map(|(p, _)| p as f64 / down.px_scale as f64);
+                let down_ask = down.best_ask().map(|(p, _)| p as f64 / down.px_scale as f64);
+                let up_imb = up.imbalance_top(5);
+                let down_imb = down.imbalance_top(5);
+                drop(up);
+                drop(down);
+
+                record_poly_tick(PolyTick {
+                    ts_ms,
+                    event_slug: m.event_slug,
+                    asset: m.asset,
+                    duration: m.duration,
+                    ptb: *ptb.read(),
+                    spot: *spot.read(),
+                    up_bid,
+                    up_ask,
+                    down_bid,
+                    down_ask,
+                    up_imbalance: up_imb,
+                    down_imbalance: down_imb,
+                });
+            }
+        });
+    }
 }
 
 // ── price-to-beat: Polymarket's own internal endpoint ────────────────────────

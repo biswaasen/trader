@@ -46,6 +46,31 @@ in the picker: `↑/↓` to move, any letter to filter, `space` to select, `ente
 
 in the viewer: `q` or `esc` to quit.
 
+## 24/7 data storage + API
+
+the app now persists Polymarket snapshots (1Hz) into a local SQLite database:
+
+- default db file: `./trader.db`
+- override with env: `TRADER_DB_PATH=/path/to/trader.db`
+
+an HTTP endpoint is also started in-process:
+
+- default bind: `0.0.0.0:8787`
+- override with env: `TRADER_API_ADDR=127.0.0.1:8787`
+
+query endpoint:
+
+```bash
+curl "http://127.0.0.1:8787/data?slug=btc-updown-15m-1776987000&date=2026-04-23"
+```
+
+supported query params:
+
+- `slug=<event_slug>`
+- `date=YYYY-MM-DD` (UTC day)
+- or `start=<rfc3339>&end=<rfc3339>`
+- optional `limit=<n>` (default 2000, max 50000)
+
 ## source layout
 
 ```
